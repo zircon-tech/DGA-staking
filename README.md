@@ -1,32 +1,40 @@
-# Digitalax Staking
+# Advanced Sample Hardhat Project
 
-A framework for staking NFTs and LP tokens on the Digitalax Platform
+This project demonstrates an advanced Hardhat use case, integrating other tools commonly used alongside Hardhat in the ecosystem.
 
-To buy and stake your own token, visit [https://digitalax.xyz/](https://digitalax.xyz/)
+The project comes with a sample contract, a sample script that deploys that contract, and an example of a task implementation, which simply lists the available accounts. It also comes with a variety of other tools, preconfigured to work with the project code.
 
+Try running some of the following tasks:
 
+```shell
+npx hardhat accounts
+npx hardhat compile
+npx hardhat clean
+npx hardhat node
+npx hardhat help
+npx hardhat coverage
+npx hardhat run scripts/deploy.ts
+TS_NODE_FILES=true npx ts-node scripts/deploy.ts
+npx eslint '**/*.{js,ts}'
+npx eslint '**/*.{js,ts}' --fix
+npx prettier '**/*.{json,sol,md}' --check
+npx prettier '**/*.{json,sol,md}' --write
+npx solhint 'contracts/**/*.sol'
+npx solhint 'contracts/**/*.sol' --fix
+```
 
-## Developer Setup
+# Etherscan verification
 
-Install Brownie: `pip3 install eth-brownie`
+To try out Etherscan verification, you first need to deploy a contract to an Ethereum network that's supported by Etherscan, such as Ropsten.
 
+In this project, copy the .env.example file to a file named .env, and then edit it to fill in the details. Enter your Etherscan API key, your Ropsten node URL (eg from Alchemy), and the private key of the account which will send the deployment transaction. With a valid .env file in place, first deploy your contract:
 
-## Compiling the contracts
+```shell
+hardhat run --network ropsten scripts/deploy.ts
+```
 
-Compile updated contracts: `brownie compile`
+Then, copy the deployment address and paste it in to replace `DEPLOYED_CONTRACT_ADDRESS` in this command:
 
-Compile all contracts (even not changed ones): `brownie compile --all`
-
-## Running tests
-
-Run tests: `brownie test`
-
-Run tests in verbose mode: `brownie test -v`
-
-Check available fixtures: `brownie --fixtures .`
-
-## Brownie commands
-
-Run script: `brownie run <script_path>`
-
-Run console (very useful for debugging): `brownie console`
+```shell
+npx hardhat verify --network ropsten DEPLOYED_CONTRACT_ADDRESS "Hello, Hardhat!"
+```
