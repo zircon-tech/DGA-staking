@@ -35,8 +35,6 @@ contract Rewards {
     KEEP public rewardsToken;
     AccessControls public accessControls;
     DKeeperStaking public genesisStaking;
-    DKeeperStaking public parentStaking;
-    DKeeperStaking public lpStaking;
 
     uint256 public constant POINT_MULTIPLIER = 10e18;
     uint256 public constant SECONDS_PER_DAY = 24 * 60 * 60;
@@ -50,15 +48,11 @@ contract Rewards {
     uint256 public lastRewardTime;
 
     uint256 public genesisRewardsPaid;
-    uint256 public parentRewardsPaid;
-    uint256 public lpRewardsPaid;
 
     /* ========== Structs ========== */
 
     struct Weights {
         uint256 genesisWtPoints;
-        uint256 parentWtPoints;
-        uint256 lpWeightPoints;
     }
 
     /// @notice mapping of a staker to its current properties
@@ -76,13 +70,9 @@ contract Rewards {
         KEEP _rewardsToken,
         AccessControls _accessControls,
         DKeeperStaking _genesisStaking,
-        DKeeperStaking _parentStaking,
-        DKeeperStaking _lpStaking,
         uint256 _startTime,
         uint256 _lastRewardTime,
         uint256 _genesisRewardsPaid,
-        uint256 _parentRewardsPaid,
-        uint256 _lpRewardsPaid
 
     )
         public
@@ -90,13 +80,9 @@ contract Rewards {
         rewardsToken = _rewardsToken;
         accessControls = _accessControls;
         genesisStaking = _genesisStaking;
-        parentStaking = _parentStaking;
-        lpStaking = _lpStaking;
         startTime = _startTime;
         lastRewardTime = _lastRewardTime;
         genesisRewardsPaid = _genesisRewardsPaid;
-        parentRewardsPaid = _parentRewardsPaid;
-        lpRewardsPaid = _lpRewardsPaid;        
     }
 
     /// @dev Setter functions for contract config
@@ -118,8 +104,6 @@ contract Rewards {
     function setInitialPoints(
         uint256 week,
         uint256 gW,
-        uint256 pW,
-        uint256 mW
 
     )
         external
@@ -130,8 +114,6 @@ contract Rewards {
         );
         Weights storage weights = weeklyWeightPoints[week];
         weights.genesisWtPoints = gW;
-        weights.parentWtPoints = pW;
-        weights.lpWeightPoints = mW;
 
     }
 
@@ -148,34 +130,6 @@ contract Rewards {
         require(_addr != address(lpStaking));
         genesisStaking = DKeeperStaking(_addr);
     }
-
-    function setParentStaking(
-        address _addr
-    )
-        external
-    {
-        require(
-            accessControls.hasAdminRole(msg.sender),
-            "Rewards.setParentStaking: Sender must be admin"
-        );
-        require(_addr != address(genesisStaking));
-        require(_addr != address(lpStaking));
-        parentStaking = DKeeperStaking(_addr);
-    }
-
-    function setLPStaking(
-        address _addr
-    )
-        external
-    {
-        require(
-            accessControls.hasAdminRole(msg.sender),
-            "Rewards.setLPStaking: Sender must be admin"
-        );
-        require(_addr != address(parentStaking));
-        require(_addr != address(genesisStaking));
-        lpStaking = DKeeperStaking(_addr);
-    } 
 
     /// @notice Set rewards distributed each week
     /// @dev this number is the total rewards that week with 18 decimals
@@ -241,8 +195,6 @@ contract Rewards {
             return false;
         }
         uint256 g_net = genesisStaking.stakedEthTotal();
-        uint256 p_net = parentStaking.stakedEthTotal();
-        uint256 m_net = lpStaking.stakedEthTotal();
 
         /// @dev check that the staking pools have contributions, and rewards have started
         if (g_net.add(p_net).add(m_net) == 0 || block.timestamp <= startTime) {
@@ -250,8 +202,8 @@ contract Rewards {
             return false;
         }
 
-        (uint256 gW, uint256 pW, uint256 mW) = _getReturnWeights(g_net, p_net, m_net);
-        _updateWeightingAcc(gW,pW,mW);
+        uint256 gW = _getReturnWeights(g_net);
+        _updateWeightingAcc(gW);
 
         /// @dev This mints and sends rewards
         _updateGenesisRewards();
@@ -269,9 +221,7 @@ contract Rewards {
     /// @notice Gets the total rewards outstanding from last reward time
     function totalRewards() external view returns (uint256) {
         uint256 gRewards = genesisRewards(lastRewardTime, block.timestamp);
-        uint256 pRewards = parentRewards(lastRewardTime, block.timestamp);
-        uint256 lRewards = LPRewards(lastRewardTime, block.timestamp);
-        return gRewards.add(pRewards).add(lRewards);     
+        return gRewards;
     }
 
 
@@ -281,9 +231,7 @@ contract Rewards {
         view
         returns(uint256)
     {
-        return genesisStaking.stakedEthTotal()
-            .add(parentStaking.stakedEthTotal())
-            .add(lpStaking.stakedEthTotal());
+        return genesisStaking.stakedEthTotal();
     }
 
     /// @dev Getter functions for Rewards contract
@@ -300,7 +248,7 @@ contract Rewards {
         view
         returns(uint256)
     {
-        return genesisRewardsPaid.add(parentRewardsPaid).add(lpRewardsPaid);
+        return genesisRewardsPaid;
     } 
 
     /// @notice Return genesis rewards over the given _from to _to timestamp.
@@ -344,89 +292,6 @@ contract Rewards {
         return rewards;
     }
 
-    /// @notice Return parent rewards over the given _from to _to timestamp.
-    /// @dev A fraction of the start, multiples of the middle weeks, fraction of the end
-    function parentRewards(uint256 _from, uint256 _to) public view returns (uint256 rewards) {
-        if (_to <= startTime) {
-            return 0;
-        }
-        if (_from < startTime) {
-            _from = startTime;
-        }
-        uint256 fromWeek = diffDays(startTime, _from) / 7;
-        uint256 toWeek = diffDays(startTime, _to) / 7;
-       
-        if (fromWeek == toWeek) {
-            return _rewardsFromPoints(weeklyRewardsPerSecond[fromWeek],
-                                    _to.sub(_from),
-                                    weeklyWeightPoints[fromWeek].parentWtPoints)
-                        .add(weeklyBonusPerSecond[address(parentStaking)][fromWeek].mul(_to.sub(_from)));
-        }
-        // First count remainer of first week 
-        uint256 initialRemander = startTime.add((fromWeek+1).mul(SECONDS_PER_WEEK)).sub(_from);
-        rewards = _rewardsFromPoints(weeklyRewardsPerSecond[fromWeek],
-                                    initialRemander,
-                                    weeklyWeightPoints[fromWeek].parentWtPoints)
-                        .add(weeklyBonusPerSecond[address(parentStaking)][fromWeek].mul(initialRemander));
-
-        /// @dev add multiples of the week
-        for (uint256 i = fromWeek+1; i < toWeek; i++) {
-            rewards = rewards.add(_rewardsFromPoints(weeklyRewardsPerSecond[i],
-                                    SECONDS_PER_WEEK,
-                                    weeklyWeightPoints[i].parentWtPoints))
-                             .add(weeklyBonusPerSecond[address(parentStaking)][i].mul(SECONDS_PER_WEEK));
-        }
-        /// @dev Adds any remaining time in the most recent week till _to
-        uint256 finalRemander = _to.sub(toWeek.mul(SECONDS_PER_WEEK).add(startTime));
-        rewards = rewards.add(_rewardsFromPoints(weeklyRewardsPerSecond[toWeek],
-                                    finalRemander,
-                                    weeklyWeightPoints[toWeek].parentWtPoints))
-                          .add(weeklyBonusPerSecond[address(parentStaking)][toWeek].mul(finalRemander));
-        return rewards;
-    }
-
-    /// @notice Return LP rewards over the given _from to _to timestamp.
-    /// @dev A fraction of the start, multiples of the middle weeks, fraction of the end
-    function LPRewards(uint256 _from, uint256 _to) public view returns (uint256 rewards) {
-        if (_to <= startTime) {
-            return 0;
-        }
-        if (_from < startTime) {
-            _from = startTime;
-        }
-        uint256 fromWeek = diffDays(startTime, _from) / 7;                      
-        uint256 toWeek = diffDays(startTime, _to) / 7;                          
-
-        if (fromWeek == toWeek) {
-            return _rewardsFromPoints(weeklyRewardsPerSecond[fromWeek],
-                                    _to.sub(_from),
-                                    weeklyWeightPoints[fromWeek].lpWeightPoints)
-                        .add(weeklyBonusPerSecond[address(lpStaking)][fromWeek].mul(_to.sub(_from)));
-        }
-        /// @dev First count remainer of first week 
-        uint256 initialRemander = startTime.add((fromWeek+1).mul(SECONDS_PER_WEEK)).sub(_from);
-        rewards = _rewardsFromPoints(weeklyRewardsPerSecond[fromWeek],
-                                    initialRemander,
-                                    weeklyWeightPoints[fromWeek].lpWeightPoints)
-                        .add(weeklyBonusPerSecond[address(lpStaking)][fromWeek].mul(initialRemander));
-
-        /// @dev add multiples of the week
-        for (uint256 i = fromWeek+1; i < toWeek; i++) {
-            rewards = rewards.add(_rewardsFromPoints(weeklyRewardsPerSecond[i],
-                                    SECONDS_PER_WEEK,
-                                    weeklyWeightPoints[i].lpWeightPoints))
-                             .add(weeklyBonusPerSecond[address(lpStaking)][i].mul(SECONDS_PER_WEEK));
-        }
-        /// @dev Adds any remaining time in the most recent week till _to
-        uint256 finalRemander = _to.sub(toWeek.mul(SECONDS_PER_WEEK).add(startTime));
-        rewards = rewards.add(_rewardsFromPoints(weeklyRewardsPerSecond[toWeek],
-                                    finalRemander,
-                                    weeklyWeightPoints[toWeek].lpWeightPoints))
-                        .add(weeklyBonusPerSecond[address(lpStaking)][toWeek].mul(finalRemander));
-        return rewards;
-    }
-
-
     /* ========== Internal Functions ========== */
 
     function _updateGenesisRewards() 
@@ -437,28 +302,6 @@ contract Rewards {
         if ( rewards > 0 ) {
             genesisRewardsPaid = genesisRewardsPaid.add(rewards);
             require(rewardsToken.mint(address(genesisStaking), rewards));
-        }
-    }
-
-    function _updateParentRewards() 
-        internal
-        returns(uint256 rewards)
-    {
-        rewards = parentRewards(lastRewardTime, block.timestamp);
-        if ( rewards > 0 ) {
-            parentRewardsPaid = parentRewardsPaid.add(rewards);
-            require(rewardsToken.mint(address(parentStaking), rewards));
-        }
-    }
-
-    function _updateLPRewards() 
-        internal
-        returns(uint256 rewards)
-    {
-        rewards = LPRewards(lastRewardTime, block.timestamp);
-        if ( rewards > 0 ) {
-            lpRewardsPaid = lpRewardsPaid.add(rewards);
-            require(rewardsToken.mint(address(lpStaking), rewards));
         }
     }
 
@@ -478,19 +321,15 @@ contract Rewards {
     }
 
     /// @dev Internal fuction to update the weightings 
-    function _updateWeightingAcc(uint256 gW, uint256 pW, uint256 mW) internal {
+    function _updateWeightingAcc(uint256 gW) internal {
         uint256 currentWeek = diffDays(startTime, block.timestamp) / 7;
         uint256 lastRewardWeek = diffDays(startTime, lastRewardTime) / 7;
         uint256 startCurrentWeek = startTime.add(currentWeek.mul(SECONDS_PER_WEEK)); 
 
         /// @dev Initialisation of new weightings and fill gaps
-        if (weeklyWeightPoints[0].genesisWtPoints == 0 
-                && weeklyWeightPoints[0].parentWtPoints == 0 
-                && weeklyWeightPoints[0].lpWeightPoints == 0  ) {
+        if (weeklyWeightPoints[0].genesisWtPoints == 0) {
             Weights storage weights = weeklyWeightPoints[0];
             weights.genesisWtPoints = gW;
-            weights.parentWtPoints = pW;
-            weights.lpWeightPoints = mW;
         }
         /// @dev Fill gaps in weightings
         if (lastRewardWeek < currentWeek ) {
@@ -498,16 +337,12 @@ contract Rewards {
             for (uint256 i = lastRewardWeek+1; i <= currentWeek; i++) {
                 Weights storage weights = weeklyWeightPoints[i];
                 weights.genesisWtPoints = gW;
-                weights.parentWtPoints = pW;
-                weights.lpWeightPoints = mW;
             }
             return;
         }      
         /// @dev Calc the time weighted averages
         Weights storage weights = weeklyWeightPoints[currentWeek];
         weights.genesisWtPoints = _calcWeightPoints(weights.genesisWtPoints,gW,startCurrentWeek);
-        weights.parentWtPoints = _calcWeightPoints(weights.parentWtPoints,pW,startCurrentWeek);
-        weights.lpWeightPoints = _calcWeightPoints(weights.lpWeightPoints,mW,startCurrentWeek);
     }
 
     /// @dev Time weighted average of the token weightings
@@ -533,30 +368,20 @@ contract Rewards {
     /// @notice Normalised weightings of weights with point multiplier 
     function _getReturnWeights(
         uint256 _g,
-        uint256 _p,
-        uint256 _m
     )   
         internal
         view
-        returns(uint256,uint256,uint256)
+        returns (uint256)
     {
-        uint256 eg = _g.mul(_getSqrtWeight(_g,_p,_m));
-        uint256 ep = _p.mul(_getSqrtWeight(_p,_m,_g));
-        uint256 em = _m.mul(_getSqrtWeight(_m,_g,_p));
+        uint256 eg = _g.mul(_getSqrtWeight(_g));
 
-        uint256 norm = eg.add(ep).add(em);
-
-        return (eg.mul(POINT_MULTIPLIER).mul(1e18).div(norm), ep.mul(POINT_MULTIPLIER).mul(1e18).div(norm), 
-                em.mul(POINT_MULTIPLIER).mul(1e18).div(norm));
-
+        return eg.mul(POINT_MULTIPLIER).mul(1e18).div(eg);
     }
 
 
     /// @notice Normalised weightings  
     function _getSqrtWeight(
         uint256 _a,
-        uint256 _b,
-        uint256 _c
     )  
         internal
         view
@@ -564,31 +389,7 @@ contract Rewards {
             uint256 wA
         )
     {
-        if ( _a <= _b.add(_c) ||  _b.add(_c) == 0  ) {
-            return 1e18;
-        }
-        /// @dev Normalised for each weighting
-        uint256 A1 = max(_a.mul(1e18).div(max(_b,1e18)),1e18);
-        uint256 A2 = max(_a.mul(1e18).div(max(_c,1e18)),1e18);
-        uint256 A = A1.mul(A2).div(1e18);
-
-        /// @dev sqrt needs to refactored by 1/2 decimals, ie 1e9
-        wA = _sqrt(uint256(1e18).mul(1e18).div(A)).mul(1e9);
-        
-    }
-
-    /// @dev babylonian method (https://en.wikipedia.org/wiki/Methods_of_computing_square_roots#Babylonian_method)
-    function _sqrt(uint y) internal pure returns (uint z) {
-        if (y > 3) {
-            z = y;
-            uint x = y / 2 + 1;
-            while (x < z) {
-                z = x;
-                x = (y / x + x) / 2;
-            }
-        } else if (y != 0) {
-            z = 1;
-        }
+        return 1e18;
     }
 
     /* ========== Recover ERC20 ========== */
@@ -634,45 +435,12 @@ contract Rewards {
         return weeklyWeightPoints[currentWeek].genesisWtPoints;
     }
 
-    function getCurrentParentWtPoints()
-        external
-        view
-        returns(uint256)
-    {
-        uint256 currentWeek = diffDays(startTime, block.timestamp) / 7;
-        return weeklyWeightPoints[currentWeek].parentWtPoints;
-    }
-    function getCurrentLpWeightPoints()
-        external
-        view
-        returns(uint256)
-    {
-        uint256 currentWeek = diffDays(startTime, block.timestamp) / 7;
-        return weeklyWeightPoints[currentWeek].lpWeightPoints;
-    }
-
     function getGenesisStakedEthTotal()
         public
         view
         returns(uint256)
     {
         return genesisStaking.stakedEthTotal();
-    }
-
-    function getLpStakedEthTotal()
-        public
-        view
-        returns(uint256)
-    {
-        return lpStaking.stakedEthTotal();
-    }
-
-    function getParentStakedEthTotal()
-        public
-        view
-        returns(uint256)
-    {
-        return parentStaking.stakedEthTotal();
     }
 
     function getGenesisDailyAPY()
@@ -686,35 +454,6 @@ contract Rewards {
         }
         uint256 rewards = genesisRewards(block.timestamp - 60, block.timestamp);
         uint256 rewardsInEth = rewards.mul(getEthPerKEEP()).div(1e18);
-        return rewardsInEth.mul(52560000).mul(1e18).div(stakedEth);
-    } 
-
-    function getParentDailyAPY()
-        external
-        view 
-        returns (uint256) 
-    {
-        uint256 stakedEth = getParentStakedEthTotal();
-        if ( stakedEth == 0 ) {
-            return 0;
-        }
-        uint256 rewards = parentRewards(block.timestamp - 60, block.timestamp);
-        uint256 rewardsInEth = rewards.mul(getEthPerKEEP()).div(1e18);
-        return rewardsInEth.mul(52560000).mul(1e18).div(stakedEth);
-    } 
-
-    function getLpDailyAPY()
-        external
-        view 
-        returns (uint256) 
-    {
-        uint256 stakedEth = getLpStakedEthTotal();
-        if ( stakedEth == 0 ) {
-            return 0;
-        }
-        uint256 rewards = LPRewards(block.timestamp - 60, block.timestamp);
-        uint256 rewardsInEth = rewards.mul(getEthPerKEEP()).div(1e18);
-        /// @dev minutes per year x 100 = 52560000
         return rewardsInEth.mul(52560000).mul(1e18).div(stakedEth);
     } 
 
