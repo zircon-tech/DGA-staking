@@ -11,8 +11,8 @@ import "./interfaces/IUniswapV2Pair.sol";
 import "./Utils/UniswapV2Library.sol";
 
 /**
- * @title DEEP Rewards
- * @dev Calculates the rewards for staking on the Digitialax platform
+ * @title DKeeper Rewards
+ * @dev Calculates the rewards for staking on the DGA platform
  * @author ZirconTech
  * @author Attr: Adrian Guerrera (deepyr)
  */
@@ -23,7 +23,7 @@ interface DKeeperStaking {
     function WETH() external view returns (address);
 }
 
-interface DEEP is IERC20 {
+interface KEEP is IERC20 {
     function mint(address tokenOwner, uint tokens) external returns (bool);
 }
 
@@ -32,15 +32,15 @@ contract Rewards {
 
     /* ========== Variables ========== */
 
-    DEEP public rewardsToken;
+    KEEP public rewardsToken;
     AccessControls public accessControls;
-    DKeeperStaking public dkeeperStaking;
+    DKeeperStaking public genesisStaking;
     DKeeperStaking public parentStaking;
     DKeeperStaking public lpStaking;
 
-    uint256 constant pointMultiplier = 10e18;
-    uint256 constant SECONDS_PER_DAY = 24 * 60 * 60;
-    uint256 constant SECONDS_PER_WEEK = 7 * 24 * 60 * 60;
+    uint256 public constant POINT_MULTIPLIER = 10e18;
+    uint256 public constant SECONDS_PER_DAY = 24 * 60 * 60;
+    uint256 public constant SECONDS_PER_WEEK = 7 * 24 * 60 * 60;
     
     // weekNumber => rewards
     mapping (uint256 => uint256) public weeklyRewardsPerSecond;
@@ -73,9 +73,9 @@ contract Rewards {
     
     /* ========== Admin Functions ========== */
     constructor(
-        DEEP _rewardsToken,
+        KEEP _rewardsToken,
         AccessControls _accessControls,
-        DKeeperStaking _dkeeperStaking,
+        DKeeperStaking _genesisStaking,
         DKeeperStaking _parentStaking,
         DKeeperStaking _lpStaking,
         uint256 _startTime,
@@ -89,7 +89,7 @@ contract Rewards {
     {
         rewardsToken = _rewardsToken;
         accessControls = _accessControls;
-        dkeeperStaking = _dkeeperStaking;
+        genesisStaking = _genesisStaking;
         parentStaking = _parentStaking;
         lpStaking = _lpStaking;
         startTime = _startTime;
@@ -135,18 +135,18 @@ contract Rewards {
 
     }
 
-    function setDKeeperStaking(
+    function setGenesisStaking(
         address _addr
     )
         external
     {
         require(
             accessControls.hasAdminRole(msg.sender),
-            "Rewards.setdkeeperStaking: Sender must be admin"
+            "Rewards.setGenesisStaking: Sender must be admin"
         );
         require(_addr != address(parentStaking));
         require(_addr != address(lpStaking));
-        dkeeperStaking = DKeeperStaking(_addr);
+        genesisStaking = DKeeperStaking(_addr);
     }
 
     function setParentStaking(
@@ -158,7 +158,7 @@ contract Rewards {
             accessControls.hasAdminRole(msg.sender),
             "Rewards.setParentStaking: Sender must be admin"
         );
-        require(_addr != address(dkeeperStaking));
+        require(_addr != address(genesisStaking));
         require(_addr != address(lpStaking));
         parentStaking = DKeeperStaking(_addr);
     }
@@ -173,7 +173,7 @@ contract Rewards {
             "Rewards.setLPStaking: Sender must be admin"
         );
         require(_addr != address(parentStaking));
-        require(_addr != address(dkeeperStaking));
+        require(_addr != address(genesisStaking));
         lpStaking = DKeeperStaking(_addr);
     } 
 
@@ -192,9 +192,9 @@ contract Rewards {
         uint256 numRewards = rewardWeeks.length;
         for (uint256 i = 0; i < numRewards; i++) {
             uint256 week = rewardWeeks[i];
-            uint256 amount = amounts[i].mul(pointMultiplier)
+            uint256 amount = amounts[i].mul(POINT_MULTIPLIER)
                                        .div(SECONDS_PER_WEEK)
-                                       .div(pointMultiplier);
+                                       .div(POINT_MULTIPLIER);
             weeklyRewardsPerSecond[week] = amount;
         }
     }
@@ -214,9 +214,9 @@ contract Rewards {
         uint256 numRewards = rewardWeeks.length;
         for (uint256 i = 0; i < numRewards; i++) {
             uint256 week = rewardWeeks[i];
-            uint256 amount = amounts[i].mul(pointMultiplier)
+            uint256 amount = amounts[i].mul(POINT_MULTIPLIER)
                                        .div(SECONDS_PER_WEEK)
-                                       .div(pointMultiplier);
+                                       .div(POINT_MULTIPLIER);
             weeklyBonusPerSecond[pool][week] = amount;
         }
     }
@@ -240,7 +240,7 @@ contract Rewards {
         if (block.timestamp <= lastRewardTime) {
             return false;
         }
-        uint256 g_net = dkeeperStaking.stakedEthTotal();
+        uint256 g_net = genesisStaking.stakedEthTotal();
         uint256 p_net = parentStaking.stakedEthTotal();
         uint256 m_net = lpStaking.stakedEthTotal();
 
@@ -281,7 +281,7 @@ contract Rewards {
         view
         returns(uint256)
     {
-        return dkeeperStaking.stakedEthTotal()
+        return genesisStaking.stakedEthTotal()
             .add(parentStaking.stakedEthTotal())
             .add(lpStaking.stakedEthTotal());
     }
@@ -319,28 +319,28 @@ contract Rewards {
             return _rewardsFromPoints(weeklyRewardsPerSecond[fromWeek],
                                     _to.sub(_from),
                                     weeklyWeightPoints[fromWeek].genesisWtPoints)
-                        .add(weeklyBonusPerSecond[address(dkeeperStaking)][fromWeek].mul(_to.sub(_from)));
+                        .add(weeklyBonusPerSecond[address(genesisStaking)][fromWeek].mul(_to.sub(_from)));
         }
         /// @dev First count remainer of first week 
         uint256 initialRemander = startTime.add((fromWeek+1).mul(SECONDS_PER_WEEK)).sub(_from);
         rewards = _rewardsFromPoints(weeklyRewardsPerSecond[fromWeek],
                                     initialRemander,
                                     weeklyWeightPoints[fromWeek].genesisWtPoints)
-                        .add(weeklyBonusPerSecond[address(dkeeperStaking)][fromWeek].mul(initialRemander));
+                        .add(weeklyBonusPerSecond[address(genesisStaking)][fromWeek].mul(initialRemander));
 
         /// @dev add multiples of the week
         for (uint256 i = fromWeek+1; i < toWeek; i++) {
             rewards = rewards.add(_rewardsFromPoints(weeklyRewardsPerSecond[i],
                                     SECONDS_PER_WEEK,
                                     weeklyWeightPoints[i].genesisWtPoints))
-                             .add(weeklyBonusPerSecond[address(dkeeperStaking)][i].mul(SECONDS_PER_WEEK));
+                             .add(weeklyBonusPerSecond[address(genesisStaking)][i].mul(SECONDS_PER_WEEK));
         }
         /// @dev Adds any remaining time in the most recent week till _to
         uint256 finalRemander = _to.sub(toWeek.mul(SECONDS_PER_WEEK).add(startTime));
         rewards = rewards.add(_rewardsFromPoints(weeklyRewardsPerSecond[toWeek],
                                     finalRemander,
                                     weeklyWeightPoints[toWeek].genesisWtPoints))
-                          .add(weeklyBonusPerSecond[address(dkeeperStaking)][toWeek].mul(finalRemander));
+                          .add(weeklyBonusPerSecond[address(genesisStaking)][toWeek].mul(finalRemander));
         return rewards;
     }
 
@@ -436,7 +436,7 @@ contract Rewards {
         rewards = genesisRewards(lastRewardTime, block.timestamp);
         if ( rewards > 0 ) {
             genesisRewardsPaid = genesisRewardsPaid.add(rewards);
-            require(rewardsToken.mint(address(dkeeperStaking), rewards));
+            require(rewardsToken.mint(address(genesisStaking), rewards));
         }
     }
 
@@ -474,7 +474,7 @@ contract Rewards {
         return rate.mul(duration)
             .mul(weight)
             .div(1e18)
-            .div(pointMultiplier);
+            .div(POINT_MULTIPLIER);
     }
 
     /// @dev Internal fuction to update the weightings 
@@ -546,8 +546,8 @@ contract Rewards {
 
         uint256 norm = eg.add(ep).add(em);
 
-        return (eg.mul(pointMultiplier).mul(1e18).div(norm), ep.mul(pointMultiplier).mul(1e18).div(norm), 
-                em.mul(pointMultiplier).mul(1e18).div(norm));
+        return (eg.mul(POINT_MULTIPLIER).mul(1e18).div(norm), ep.mul(POINT_MULTIPLIER).mul(1e18).div(norm), 
+                em.mul(POINT_MULTIPLIER).mul(1e18).div(norm));
 
     }
 
@@ -656,7 +656,7 @@ contract Rewards {
         view
         returns(uint256)
     {
-        return dkeeperStaking.stakedEthTotal();
+        return genesisStaking.stakedEthTotal();
     }
 
     function getLpStakedEthTotal()
@@ -685,7 +685,7 @@ contract Rewards {
             return 0;
         }
         uint256 rewards = genesisRewards(block.timestamp - 60, block.timestamp);
-        uint256 rewardsInEth = rewards.mul(getEthPerMona()).div(1e18);
+        uint256 rewardsInEth = rewards.mul(getEthPerKEEP()).div(1e18);
         return rewardsInEth.mul(52560000).mul(1e18).div(stakedEth);
     } 
 
@@ -699,7 +699,7 @@ contract Rewards {
             return 0;
         }
         uint256 rewards = parentRewards(block.timestamp - 60, block.timestamp);
-        uint256 rewardsInEth = rewards.mul(getEthPerMona()).div(1e18);
+        uint256 rewardsInEth = rewards.mul(getEthPerKEEP()).div(1e18);
         return rewardsInEth.mul(52560000).mul(1e18).div(stakedEth);
     } 
 
@@ -713,12 +713,12 @@ contract Rewards {
             return 0;
         }
         uint256 rewards = LPRewards(block.timestamp - 60, block.timestamp);
-        uint256 rewardsInEth = rewards.mul(getEthPerMona()).div(1e18);
+        uint256 rewardsInEth = rewards.mul(getEthPerKEEP()).div(1e18);
         /// @dev minutes per year x 100 = 52560000
         return rewardsInEth.mul(52560000).mul(1e18).div(stakedEth);
     } 
 
-    function getMonaPerEth()
+    function getKEEPPerEth()
         public 
         view 
         returns (uint256)
@@ -727,7 +727,7 @@ contract Rewards {
         return UniswapV2Library.quote(1e18, wethReserve, tokenReserve);
     }
 
-    function getEthPerMona()
+    function getEthPerKEEP()
         public
         view
         returns (uint256)

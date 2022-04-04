@@ -51,7 +51,7 @@ contract MockStaking {
     uint256 public rewardsPerTokenPoints;
     uint256 public totalUnclaimedRewards;
 
-    uint256 constant pointMultiplier = 10e32;
+    uint256 constant POINT_MULTIPLIER = 10e32;
 
     /**
     @notice to track what user is staking what tokens
@@ -79,7 +79,7 @@ contract MockStaking {
     mapping (uint256 => uint256) public contribution;
     uint256 public totalContributions;
     // @notice the maximum accumulative amount a user can contribute to the genesis sale
-    uint256 public constant maximumContributionAmount = 2 ether;
+    uint256 public constant MAXIMUM_CONTRIBUTION_AMOUNT = 2 ether;
 
     /// @notice sets the token to be claimable or not, cannot claim if it set to false
     bool public tokensClaimable;
@@ -108,7 +108,7 @@ contract MockStaking {
     }
      /**
      * @dev Single gateway to intialize the staking contract after deploying
-     * @dev Sets the contract with the MONA genesis nfts and a reward token so that they can be used for staking and giving out reward
+     * @dev Sets the contract with the DEEP genesis nfts and a reward token so that they can be used for staking and giving out reward
      */
     function initGenesisStaking(
         address payable _fundsMultisig,

@@ -8,6 +8,7 @@ import "./AccessControls.sol";
 
 /**
  * @title DKeeper Genesis NFT
+ * @author ZirconTech
  * @dev To facilitate the genesis sale for the DGA platform
  */
 contract DKeeper is ERC721WithSameTokenURIForAllTokens("DKeeper", "DKEEP") {
@@ -63,10 +64,10 @@ contract DKeeper is ERC721WithSameTokenURIForAllTokens("DKeeper", "DKEEP") {
     bool public genesisEndTimestampLocked;
 
     // @notice the minimum amount a buyer can contribute in a single go
-    uint256 public constant minimumContributionAmount = 0.1 ether;
+    uint256 public constant MINIMUM_CONTRIBUTION_AMOUNT = 0.5 ether;
 
     // @notice the maximum accumulative amount a user can contribute to the genesis sale
-    uint256 public constant maximumContributionAmount = 2 ether;
+    uint256 public constant MAXIMUM_CONTRIBUTION_AMOUNT = 2 ether;
 
     // @notice accumulative => contribution total
     mapping(address => uint256) public contribution;
@@ -75,7 +76,7 @@ contract DKeeper is ERC721WithSameTokenURIForAllTokens("DKeeper", "DKEEP") {
     uint256 public totalContributions;
 
     // @notice max number of paid contributions to the genesis sale
-    uint256 public constant maxGenesisContributionTokens = 460;
+    uint256 public constant MAX_GENESIS_CONTRIBUTION_TOKENS = 200;
 
     uint256 public totalAdminMints;
 
@@ -96,8 +97,8 @@ contract DKeeper is ERC721WithSameTokenURIForAllTokens("DKeeper", "DKEEP") {
 
     /**
      * @dev Proxy method for facilitating a single point of entry to either buy or contribute additional value to the Genesis sale
-     * @dev Cannot contribute less than minimumContributionAmount
-     * @dev Cannot contribute accumulative more than than maximumContributionAmount
+     * @dev Cannot contribute less than MINIMUM_CONTRIBUTION_AMOUNT
+     * @dev Cannot contribute accumulative more than than MAXIMUM_CONTRIBUTION_AMOUNT
      */
     function buyOrIncreaseContribution() external payable {
         if (contribution[_msgSender()] == 0) {
@@ -109,8 +110,8 @@ contract DKeeper is ERC721WithSameTokenURIForAllTokens("DKeeper", "DKEEP") {
 
     /**
      * @dev Facilitating the initial purchase of a Genesis NFT
-     * @dev Cannot contribute less than minimumContributionAmount
-     * @dev Cannot contribute accumulative more than than maximumContributionAmount
+     * @dev Cannot contribute less than MINIMUM_CONTRIBUTION_AMOUNT
+     * @dev Cannot contribute accumulative more than than MAXIMUM_CONTRIBUTION_AMOUNT
      * @dev Reverts if already owns an genesis token
      * @dev Buyer receives a NFT on success
      * @dev All funds move to fundsMultisig
@@ -124,12 +125,12 @@ contract DKeeper is ERC721WithSameTokenURIForAllTokens("DKeeper", "DKEEP") {
 
         uint256 _contributionAmount = msg.value;
         require(
-            _contributionAmount >= minimumContributionAmount,
+            _contributionAmount >= MINIMUM_CONTRIBUTION_AMOUNT,
             "DKeeper.buy: Contribution does not meet minimum requirement"
         );
 
         require(
-            _contributionAmount <= maximumContributionAmount,
+            _contributionAmount <= MAXIMUM_CONTRIBUTION_AMOUNT,
             "DKeeper.buy: You cannot exceed the maximum contribution amount"
         );
 
@@ -149,8 +150,8 @@ contract DKeeper is ERC721WithSameTokenURIForAllTokens("DKeeper", "DKEEP") {
 
     /**
      * @dev Facilitates an owner to increase there contribution
-     * @dev Cannot contribute less than minimumContributionAmount
-     * @dev Cannot contribute accumulative more than than maximumContributionAmount
+     * @dev Cannot contribute less than MINIMUM_CONTRIBUTION_AMOUNT
+     * @dev Cannot contribute accumulative more than than MAXIMUM_CONTRIBUTION_AMOUNT
      * @dev All funds move to fundsMultisig
      * @dev Reverts if caller does not already owns an genesis token
      */
@@ -169,7 +170,7 @@ contract DKeeper is ERC721WithSameTokenURIForAllTokens("DKeeper", "DKEEP") {
         contribution[_msgSender()] = contribution[_msgSender()].add(_amountToIncrease);
 
         require(
-            contribution[_msgSender()] <= maximumContributionAmount,
+            contribution[_msgSender()] <= MAXIMUM_CONTRIBUTION_AMOUNT,
             "DKeeper.increaseContribution: You cannot exceed the maximum contribution amount"
         );
 
@@ -258,7 +259,7 @@ contract DKeeper is ERC721WithSameTokenURIForAllTokens("DKeeper", "DKEEP") {
     }
 
     function _getMaxGenesisContributionTokens() internal virtual view returns (uint256) {
-        return maxGenesisContributionTokens;
+        return MAX_GENESIS_CONTRIBUTION_TOKENS;
     }
 
     /**

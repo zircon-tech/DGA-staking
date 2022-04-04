@@ -11,23 +11,20 @@ import "./interfaces/IDKeeper.sol";
 
 /**
  * @title DKeeper Staking
- * @dev Stake NFTs, earn tokens on the Digitialax platform
+ * @dev Stake NFTs, earn tokens on the DGA platform
  * @author ZirconTech
  * @author Attr: Adrian Guerrera (deepyr)
  */
 
-
-contract DKeeperStaking {
+contract DKeeperNFTStaking {
     using SafeMath for uint256;
     bytes4 private constant _ERC721_RECEIVED = 0x150b7a02;
 
     IERC20 public rewardsToken;
-    IDKeeper public genesisNFT;
+    IDKeeper public parentNFT;
     AccessControls public accessControls;
     IRewards public rewardsContract;
 
-    /// @notice all funds will be sent to this address pon purchase of a Genesis NFT
-    address payable public fundsMultisig;
 
     /// @notice total ethereum staked currently in the gensesis staking contract
     uint256 public stakedEthTotal;
@@ -36,7 +33,7 @@ contract DKeeperStaking {
     uint256 public rewardsPerTokenPoints;
     uint256 public totalUnclaimedRewards;
 
-    uint256 constant pointMultiplier = 10e32;
+    uint256 public constant POINT_MULTIPLIER = 10e18;
 
     /**
     @notice Struct to track what user is staking which tokens
@@ -60,15 +57,9 @@ contract DKeeperStaking {
     // Mapping from token ID to owner address
     mapping (uint256 => address) public tokenOwner;
 
-    /// @notice tokenId => amount contributed
-    mapping (uint256 => uint256) public contribution;
-    uint256 public totalContributions;
-    // @notice the maximum accumulative amount a user can contribute to the genesis sale
-    uint256 public constant maximumContributionAmount = 2 ether;
-
     /// @notice sets the token to be claimable or not, cannot claim if it set to false
     bool public tokensClaimable;
-    bool initialised;
+    bool public initialised;
 
     /// @notice event emitted when a user has staked a token
     event Staked(address owner, uint256 amount);
@@ -85,35 +76,32 @@ contract DKeeperStaking {
     /// @notice Emergency unstake tokens without rewards
     event EmergencyUnstake(address indexed user, uint256 tokenId);
 
-    // @notice event emitted when a contributors amount is increased
-    event ContributionIncreased(
-        uint256 indexed tokenId,
-        uint256 contribution
-    );
+    /// @notice Admin update of rewards contract
+    event RewardsTokenUpdated(address indexed oldRewardsToken, address newRewardsToken );
 
     constructor() public {
     }
      /**
      * @dev Single gateway to intialize the staking contract after deploying
-     * @dev Sets the contract with the MONA genesis NFT and MONA reward token 
+     * @dev Sets the contract with the DEEP NFT and DEEP reward token 
      */
-    function initGenesisStaking(
-        address payable _fundsMultisig,
+    function initStaking(
         IERC20 _rewardsToken,
-        IDKeeper _genesisNFT,
+        IDKeeper _parentNFT,
         AccessControls _accessControls
     )
-        public
+        external
     {
         require(!initialised, "Already initialised");
-        fundsMultisig = _fundsMultisig;
         rewardsToken = _rewardsToken;
-        genesisNFT = _genesisNFT;
+        parentNFT = _parentNFT;
         accessControls = _accessControls;
         lastUpdateTime = block.timestamp;
         initialised = true;
     }
 
+
+    /// @notice Lets admin set the Rewards Token
     function setRewardsContract(
         address _addr
     )
@@ -121,12 +109,15 @@ contract DKeeperStaking {
     {
         require(
             accessControls.hasAdminRole(msg.sender),
-            "DKeeperStaking.setRewardsContract: Sender must be admin"
+            "DKeeperParentStaking.setRewardsContract: Sender must be admin"
         );
         require(_addr != address(0));
+        address oldAddr = address(rewardsContract);
         rewardsContract = IRewards(_addr);
+        emit RewardsTokenUpdated(oldAddr, _addr);
     }
 
+    /// @notice Lets admin set the Rewards to be claimable
     function setTokensClaimable(
         bool _enabled
     )
@@ -134,7 +125,7 @@ contract DKeeperStaking {
     {
         require(
             accessControls.hasAdminRole(msg.sender),
-            "DKeeperStaking.setTokensClaimable: Sender must be admin"
+            "DKeeperParentStaking.setTokensClaimable: Sender must be admin"
         );
         tokensClaimable = _enabled;
         emit ClaimableStatusUpdated(_enabled);
@@ -154,26 +145,27 @@ contract DKeeperStaking {
 
 
     /// @dev Get the amount a staked nft is valued at ie bought at
-    function getGenesisContribution (
+    function getContribution (
         uint256 _tokenId
     ) 
         public
         view
-        returns (uint256 amount)
+        returns (uint256)
     {
-        return contribution[_tokenId];
+        return parentNFT.primarySalePrice(_tokenId);
     }
 
-    /// @notice Stake Genesis MONA NFT and earn reward tokens. 
+    /// @notice Stake DEEP NFTs and earn reward tokens. 
     function stake(
         uint256 tokenId
     )
         external
     {
+        // require();
         _stake(msg.sender, tokenId);
     }
 
-     /// @notice Stake multiple MONA NFTs and earn reward tokens. 
+    /// @notice Stake multiple DEEP NFTs and earn reward tokens. 
     function stakeBatch(uint256[] memory tokenIds)
         external
     {
@@ -182,13 +174,13 @@ contract DKeeperStaking {
         }
     }
 
-    /// @notice Stake all your MONA NFTs and earn reward tokens. 
+    /// @notice Stake all your DEEP NFTs and earn reward tokens. 
     function stakeAll()
         external
     {
-        uint256 balance = genesisNFT.balanceOf(msg.sender);
+        uint256 balance = parentNFT.balanceOf(msg.sender);
         for (uint i = 0; i < balance; i++) {
-            _stake(msg.sender, genesisNFT.tokenOfOwnerByIndex(msg.sender,i));
+            _stake(msg.sender, parentNFT.tokenOfOwnerByIndex(msg.sender,i));
         }
     }
 
@@ -211,13 +203,13 @@ contract DKeeperStaking {
         }
 
         updateReward(_user);
-        uint256 amount = getGenesisContribution(_tokenId);
+        uint256 amount = getContribution(_tokenId);
         staker.balance = staker.balance.add(amount);
         stakedEthTotal = stakedEthTotal.add(amount);
         staker.tokenIds.push(_tokenId);
         staker.tokenIndex[staker.tokenIds.length - 1];
         tokenOwner[_tokenId] = _user;
-        genesisNFT.safeTransferFrom(
+        parentNFT.safeTransferFrom(
             _user,
             address(this),
             _tokenId
@@ -226,7 +218,7 @@ contract DKeeperStaking {
         emit Staked(_user, _tokenId);
     }
 
-    /// @notice Unstake Genesis MONA NFTs. 
+    /// @notice Unstake Genesis DEEP NFTs. 
     function unstake(
         uint256 _tokenId
     ) 
@@ -234,13 +226,13 @@ contract DKeeperStaking {
     {
         require(
             tokenOwner[_tokenId] == msg.sender,
-            "DKeeperStaking._unstake: Sender must have staked tokenID"
+            "DKeeperParentStaking._unstake: Sender must have staked tokenID"
         );
         claimReward(msg.sender);
         _unstake(msg.sender, _tokenId);
     }
 
-    /// @notice Stake multiple Genesis NFTs and claim reward tokens. 
+    /// @notice Stake multiple DEEP NFTs and claim reward tokens. 
     function unstakeBatch(
         uint256[] memory tokenIds
     )
@@ -253,7 +245,6 @@ contract DKeeperStaking {
             }
         }
     }
-
 
      /**
      * @dev All the unstaking goes through this function
@@ -269,14 +260,16 @@ contract DKeeperStaking {
 
         Staker storage staker = stakers[_user];
 
-        uint256 amount = getGenesisContribution(_tokenId);
+        uint256 amount = getContribution(_tokenId);
         staker.balance = staker.balance.sub(amount);
         stakedEthTotal = stakedEthTotal.sub(amount);
 
         uint256 lastIndex = staker.tokenIds.length - 1;
         uint256 lastIndexKey = staker.tokenIds[lastIndex];
-        staker.tokenIds[staker.tokenIndex[_tokenId]] = lastIndexKey;
-        staker.tokenIndex[lastIndexKey] = staker.tokenIndex[_tokenId];
+        uint256 tokenIdIndex = staker.tokenIndex[_tokenId];
+        
+        staker.tokenIds[tokenIdIndex] = lastIndexKey;
+        staker.tokenIndex[lastIndexKey] = tokenIdIndex;
         if (staker.tokenIds.length > 0) {
             staker.tokenIds.pop();
             delete staker.tokenIndex[_tokenId];
@@ -287,7 +280,7 @@ contract DKeeperStaking {
         }
         delete tokenOwner[_tokenId];
 
-        genesisNFT.safeTransferFrom(
+        parentNFT.safeTransferFrom(
             address(this),
             _user,
             _tokenId
@@ -298,10 +291,10 @@ contract DKeeperStaking {
     }
 
     // Unstake without caring about rewards. EMERGENCY ONLY.
-    function emergencyUnstake(uint256 _tokenId) external {
+    function emergencyUnstake(uint256 _tokenId) public {
         require(
             tokenOwner[_tokenId] == msg.sender,
-            "DKeeperStaking._unstake: Sender must have staked tokenID"
+            "DKeeperParentStaking._unstake: Sender must have staked tokenID"
         );
         _unstake(msg.sender, _tokenId);
         emit EmergencyUnstake(msg.sender, _tokenId);
@@ -315,13 +308,14 @@ contract DKeeperStaking {
     ) 
         public 
     {
+
         rewardsContract.updateRewards();
-        uint256 genesisRewards = rewardsContract.genesisRewards(lastUpdateTime, block.timestamp);
+        uint256 parentRewards = rewardsContract.parentRewards(lastUpdateTime, block.timestamp);
 
         if (stakedEthTotal > 0) {
-            rewardsPerTokenPoints = rewardsPerTokenPoints.add(genesisRewards
+            rewardsPerTokenPoints = rewardsPerTokenPoints.add(parentRewards
                                             .mul(1e18)
-                                            .mul(pointMultiplier)
+                                            .mul(POINT_MULTIPLIER)
                                             .div(stakedEthTotal));
         }
         
@@ -349,10 +343,37 @@ contract DKeeperStaking {
         uint256 newRewardPerToken = rewardsPerTokenPoints.sub(stakers[_user].lastRewardPoints);
         uint256 rewards = stakers[_user].balance.mul(newRewardPerToken)
                                                 .div(1e18)
-                                                .div(pointMultiplier);
+                                                .div(POINT_MULTIPLIER);
         return rewards;
     }
 
+
+    /// @notice Returns the about of rewards yet to be claimed
+    function unclaimedRewards(
+        address _user
+    )
+        external
+        view
+        returns(uint256)
+    {
+        if (stakedEthTotal == 0) {
+            return 0;
+        }
+
+        uint256 parentRewards = rewardsContract.parentRewards(lastUpdateTime,
+                                                        block.timestamp);
+
+        uint256 newRewardPerToken = rewardsPerTokenPoints.add(parentRewards
+                                                                .mul(1e18)
+                                                                .mul(POINT_MULTIPLIER)
+                                                                .div(stakedEthTotal))
+                                                         .sub(stakers[_user].lastRewardPoints);
+                                                         
+        uint256 rewards = stakers[_user].balance.mul(newRewardPerToken)
+                                                .div(1e18)
+                                                .div(POINT_MULTIPLIER);
+        return rewards.add(stakers[_user].rewardsEarned).sub(stakers[_user].rewardsReleased);
+    }
 
 
     /// @notice Lets a user with rewards owing to claim tokens
@@ -372,100 +393,14 @@ contract DKeeperStaking {
         uint256 payableAmount = staker.rewardsEarned.sub(staker.rewardsReleased);
         staker.rewardsReleased = staker.rewardsReleased.add(payableAmount);
 
+        /// @dev accounts for dust 
+        uint256 rewardBal = rewardsToken.balanceOf(address(this));
+        if (payableAmount > rewardBal) {
+            payableAmount = rewardBal;
+        }
+
         rewardsToken.transfer(_user, payableAmount);
         emit RewardPaid(_user, payableAmount);
-    }
-
-
-    /// @notice Returns the about of rewards yet to be claimed
-    function unclaimedRewards(
-        address _user
-    )
-        external
-        view
-        returns(uint256)
-    {
-        if (stakedEthTotal == 0) {
-            return 0;
-        }
-
-        uint256 genesisRewards = rewardsContract.genesisRewards(lastUpdateTime,
-                                                        block.timestamp);
-
-        uint256 newRewardPerToken = rewardsPerTokenPoints.add(genesisRewards
-                                                                .mul(1e18)
-                                                                .mul(pointMultiplier)
-                                                                .div(stakedEthTotal))
-                                                         .sub(stakers[_user].lastRewardPoints);
-                                                         
-        uint256 rewards = stakers[_user].balance.mul(newRewardPerToken)
-                                                .div(1e18)
-                                                .div(pointMultiplier);
-        return rewards.add(stakers[_user].rewardsEarned).sub(stakers[_user].rewardsReleased);
-    }
-
-    // Set contribution amounts for NFTs
-    ///@dev So the genesis contracts did not have any way to check how much was contributed
-    ///@dev So instead we put in the amounts using this function
-    function setContributions(
-        uint256[] memory tokens,
-        uint256[] memory amounts
-    )
-        external
-    {
-        require(
-            accessControls.hasAdminRole(msg.sender),
-            "DKeeperStaking.setContributions: Sender must be admin"
-        );
-        for (uint256 i = 0; i < tokens.length; i++) {
-            uint256 token = tokens[i];
-            uint256 amount = amounts[i];
-            contribution[token] = amount;
-            totalContributions = totalContributions.add(amount);
-
-        }
-    }
-
-    /**
-     * @notice Facilitates an owner to increase there contribution
-     * @dev Cannot contribute less than minimumContributionAmount
-     * @dev Cannot contribute accumulative more than than maximumContributionAmount
-     * @dev Reverts if caller does not already owns an genesis token
-     * @dev All funds move to fundsMultisig
-     */
-    function increaseContribution(uint256 _tokenId)
-        external
-        payable
-    {
-        updateReward(tokenOwner[_tokenId]);
-        require(
-            contribution[_tokenId] > 0,
-            "DKeeperStaking.increaseContribution: genesis NFT was not contribibuted"
-        );
-
-        uint256 _amountToIncrease = msg.value;
-        contribution[_tokenId] = contribution[_tokenId].add(_amountToIncrease);
-
-        require(
-            contribution[_tokenId] <= maximumContributionAmount,
-            "DKeeperStaking.increaseContribution: You cannot exceed the maximum contribution amount"
-        );
-
-        totalContributions = totalContributions.add(_amountToIncrease);
-
-        (bool fundsTransferSuccess,) = fundsMultisig.call{value : _amountToIncrease}("");
-        require(
-            fundsTransferSuccess,
-            "DKeeperStaking.increaseContribution: Unable to send contribution to funds multisig"
-        );
-        
-        Staker storage staker = stakers[tokenOwner[_tokenId]];
-        /// @dev Update staked balance
-        if (staker.tokenIds[staker.tokenIndex[_tokenId]] == _tokenId ) {
-            staker.balance = staker.balance.add(_amountToIncrease);
-            stakedEthTotal = stakedEthTotal.add(_amountToIncrease);
-        }
-        emit ContributionIncreased(_tokenId, _amountToIncrease);
     }
 
 

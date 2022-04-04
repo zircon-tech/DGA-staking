@@ -91,7 +91,7 @@ contract KEEP is Context, IERC20  {
     function setCap(uint _cap, bool _freezeCap) external  {
         require(
             accessControls.hasAdminRole(_msgSender()),
-            "MONA.setCap: Sender must be admin"
+            "DEEP.setCap: Sender must be admin"
         );
         require(_freezeCap || _cap >= _totalSupply, "Cap less than totalSupply");
         require(!freezeCap, "Cap frozen");
@@ -112,7 +112,7 @@ contract KEEP is Context, IERC20  {
     function mint(address tokenOwner, uint tokens) external returns (bool success) {
         require(
             accessControls.hasMinterRole(_msgSender()),
-            "MONA.mint: Sender must have permission to mint"
+            "DEEP.mint: Sender must have permission to mint"
         );
         require(cap == 0 || _totalSupply + tokens <= cap, "Cap exceeded");
         balances[tokenOwner] = balances[tokenOwner].add(tokens);

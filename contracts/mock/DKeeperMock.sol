@@ -6,7 +6,7 @@ import "../DKeeper.sol";
 
 contract DKeeperMock is DKeeper {
     uint256 public nowOverride;
-    uint256 public maxGenesisContributionTokensOverride;
+    uint256 public MAX_GENESIS_CONTRIBUTION_TOKENSOverride;
 
     constructor(
         AccessControls _accessControls,
@@ -26,15 +26,15 @@ contract DKeeperMock is DKeeper {
         nowOverride = _now;
     }
 
-    function setMaxGenesisContributionTokensOverride(uint256 _maxGenesisContributionTokensOverride) external {
-        maxGenesisContributionTokensOverride = _maxGenesisContributionTokensOverride;
+    function setMAX_GENESIS_CONTRIBUTION_TOKENSOverride(uint256 _MAX_GENESIS_CONTRIBUTION_TOKENSOverride) external {
+        MAX_GENESIS_CONTRIBUTION_TOKENSOverride = _MAX_GENESIS_CONTRIBUTION_TOKENSOverride;
     }
 
     function _getNow() internal override view returns (uint256) {
         return nowOverride;
     }
 
-    function _getMaxGenesisContributionTokens() internal override view returns (uint256) {
-        return maxGenesisContributionTokensOverride;
+    function _getMAX_GENESIS_CONTRIBUTION_TOKENS() internal override view returns (uint256) {
+        return MAX_GENESIS_CONTRIBUTION_TOKENSOverride;
     }
 }
